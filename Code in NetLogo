@@ -1,0 +1,556 @@
+turtles-own[
+age
+gender
+active-adult?      ; 18-45 years old, unmarried, healthy adult
+married?
+date-id            ; id of current interacting mate(unmarried)
+spouse             ; id of spouse if married
+infected?
+infected-time-one-for-six-month
+vaccinated?
+risk               ; probability of being infected with hpv
+number-of-child
+; a married couple could have no more than 2 children
+;(if unmaried and has child, the child is not counted here and the number of such children has no limitation)
+not-in-good-health ; patients' health conditions become so bad that they could no longer perform sexual behaviors
+wait-for-treatment
+; agents are diagnosed duing annual check or they seek help after they stop feeling well
+;(they can recover in 2 years after they are diagnosed/seek help)
+infected-once?     ; whether the agent has been diagnosed once through regular-check or not-in-good-health
+contacts           ; friends of the agent
+ma-id              ; parents' id for newborn agents
+pa-id
+]
+
+to setup
+  ca
+  reset-ticks
+
+  ; set the environment(agents cannot cross the black borders)
+  ask patches [
+    set pcolor white
+    if abs pxcor = floor (world-width / 2) [set pcolor black]
+    if abs pycor = floor (world-height / 2) [set pcolor black]
+  ]
+
+  let maxturtles count patches with [pcolor = white]         ; create agents based on "density"
+  ask n-of (maxturtles * density / 100) patches with [pcolor = white] [sprout 1]
+
+  ask turtles[        ; ordinary people
+  set shape "person"
+  set color grey + 2
+
+  set age round random-skewed-age   ; set age based on a skewed distribution
+
+  set gender ifelse-value (random-float 1 < 0.45) [ 1 ] [ 2 ]
+  ; set gender almost 50/50 chance of male/female(with female being more likely)
+
+  set married? false     ; no agent is married in the beginning
+
+  set date-id 99999
+
+  set spouse 99999
+
+  set infected-time-one-for-six-month 0    ; all agents have not yet been infected
+
+  set vaccinated? false  ; set all vaccinated status false(will select a number of agents to be vaccinated in later steps)
+
+  ifelse (age >= 18 and age <= 45) [set active-adult? true][set active-adult? false set shape "circle"]
+  ; set active-adult? status(no one is married or in bad health when we set up so we just specify the age)
+
+  set infected? false  ; set all infection status false(will select a number of agents to be infected in later steps)
+
+  set risk 100        ; set infection rate 100 in the beginning
+
+  set number-of-child 0   ; no child in the beginnning
+
+  set not-in-good-health false  ; all in good health
+
+  set wait-for-treatment 0 ; not waiting for treatment
+
+  set infected-once? false  ; no one has been diagnosed
+
+  create-links-with (other turtles-on neighbors)
+  set contacts [who] of link-neighbors  ; find agents on neighbor patches and set them as my contacts
+  ask links [set hidden? true]
+
+  set ma-id 99999
+
+  set pa-id 99999
+  ]
+
+  ; Create the seed of the virus based on initial-patient-rate
+  let allturtles count turtles
+  ask n-of (allturtles * initial-patient-rate / 100) turtles[
+    set color red
+    set infected? true
+  ]
+
+  ; vaccine
+  ; set a certain number of agents to be vaccinated based on initial-vaccine-rate
+  ask n-of (allturtles * initial-vaccine-rate / 100) turtles[
+  set vaccinated? true
+      ]
+
+  ask turtles with [vaccinated? = true and infected? = false][set risk 30]    ; change the risk of vaccinated agents
+  ask turtles with [vaccinated? = true and infected? = true][set risk 50]     ; vaccine is less effective for infected agents
+
+end
+
+to go
+  if(ticks = 100)[stop]   ;;; when to stop: 2 ticks a year . a total of 50 years so 100 ticks
+  tick
+  ; agents in different age groups have different probability of dying in each tick(the older a agent is, the more likely it dies)
+  ; when they die, their links with others also die and their spouse become single(not married) again
+  ask turtles with [age >= 60 and age < 70] [
+    if random-float 1 < 0.5 [
+      ask my-links[die]
+      if married? = true and turtle spouse != nobody[
+          ask turtle spouse[
+            set married? false
+            set spouse 99999
+            set number-of-child 0
+        ]
+      ]
+      die]
+  ]
+
+    ask turtles with [age >= 70] [
+    if random-float 1 < 0.8 [
+      ask my-links[die]
+      if married? = true and turtle spouse != nobody[
+          ask turtle spouse[
+            set married? false
+            set spouse 99999
+            set number-of-child 0
+        ]
+      ]
+      die]
+  ]
+
+    ask turtles with [age = 80] [
+      ask my-links[die]
+      if married? = true and turtle spouse != nobody[
+          ask turtle spouse[
+            set married? false
+            set spouse 99999
+            set number-of-child 0
+        ]
+      ]
+      die]
+
+  ; die of disease
+  ask turtles with [not-in-good-health = true][
+    if random-float 1 < 0.1[
+      ask my-links[die]
+      if married? = true and turtle spouse != nobody[
+          ask turtle spouse[
+            set married? false
+            set spouse 99999
+            set number-of-child 0
+        ]
+      ]
+      die]
+  ]
+
+  ; update infected time
+  ask turtles with [infected? = true][set infected-time-one-for-six-month (infected-time-one-for-six-month + 1)]
+
+  ; after a certain amount of time, the turtle should be in bad health and is no longer an active adult
+  ask turtles with [infected-time-one-for-six-month != 0 and infected-time-one-for-six-month mod 2 = 0][
+    ; every year after infection the infected agent might feel its health condition deteriorating
+     if random-float 1 < 0.05
+     [set not-in-good-health true]
+  ]
+  ; agents suffer from bad health would start to seek help(but help takes time)
+  ask turtles with [not-in-good-health = true] [
+     set wait-for-treatment wait-for-treatment + 1
+  ]
+
+  ; after two years, patients can recover
+  ask turtles with [wait-for-treatment = 4][
+    recover
+    if married? = true and turtle spouse != nobody
+    [let partner-condition [infected?] of turtle spouse
+     if partner-condition = true [set infected? true set color red]
+    ]
+  ]
+
+  ask turtles [set contacts [who] of link-neighbors] ; update contacts: remove dead turtles
+
+  ; only when the agent is 18-45 years old, not married and "looks healthy" can it be an active-adult
+  ask turtles [ifelse (age >= 18 and age <= 45 and married? = false and not-in-good-health = false)
+    [set active-adult? true set shape "person"][set active-adult? false set shape "circle"]]
+
+  ; married couples can have children(no more than 2) while they stay married
+  ask turtles with [married? = true and age >= 18 and age <= 45 and not-in-good-health = false and gender = 2 and number-of-child < 2][
+    ;print (word "Person " who " gave birth while married")
+    give-birth-within-marriage ]
+
+
+  ;;;;;;;
+  ; only active-adults can "date"
+  ask turtles with [active-adult? = true]
+  [ random-walk
+    date]
+
+  ;;; divorce
+   divorce
+
+  ; after a year, every agent age up
+  if(ticks != 0 and (ticks mod 2) = 0)[
+    ask turtles [set age (age + 1)]
+  ]
+
+  ; health-check
+  health-check-every-two-years
+
+  ask turtles [set date-id 99999] ; reset id of current date
+end
+
+to random-walk
+  let newspots neighbors with [pcolor = white]  ; move randomly to nearby white patches
+  move-to one-of newspots
+end
+
+to date
+  let my-id who
+
+  let potential-mate (turtles-on neighbors) with [active-adult? = true and married? = false and gender != [gender] of myself]
+  if any? potential-mate [
+  let my-date one-of potential-mate      ; find potential date(active, not married and has a differnt gender)
+
+    set date-id [who] of my-date
+    let my-date-id [who] of my-date
+    ask my-date [set date-id my-id]    ; update date-id
+
+  let my-risk risk
+  let mate-risk [risk] of my-date
+  let my-disease infected?
+  let mate-disease [infected?] of my-date
+
+  if random-float 100 < interactive-rate[   ; choose to interact(date) or not
+       let con random 100
+       ifelse con < condom-using-rate  ; if choose to interact, choose to use a condom or not
+       [set my-risk (my-risk * 0.3)          ;;; how can condom protect agents?
+        set mate-risk (mate-risk * 0.3)      ; if using condom, update risks of both agents
+
+        if (my-disease = true and mate-disease = false) [   ; can I infect my date?
+        if random 100 < mate-risk
+        [ask my-date
+            [set infected? true
+             set color red
+          ]
+          ]
+          ]
+        if (my-disease = false and mate-disease = true) [   ; can my date infect me?
+        if random 100 < my-risk
+        [set infected? true
+         set color red]
+          ]
+       ]
+    ;;;;;;
+       [  ; if not using a condom
+      if (my-disease = true and mate-disease = false) [
+        if random-float 100 < mate-risk
+        [ask my-date
+            [set infected? true
+             set color red
+          ]]
+          ]
+      if (my-disease = false and mate-disease = true) [
+        if random-float 100 < my-risk
+        [set infected? true
+          set color red]
+      ]
+
+     ; without condom could probably create a newborn(but this newborn will not be count in number-of-child)
+        let baby random-float 1
+        if baby < 0.5 [hatch 1 [
+                              set shape "circle"
+                              set color grey + 2
+                          set age 0
+                          set gender ifelse-value (random-float 1 < 0.45) [ 1 ] [ 2 ]
+                          set active-adult? false
+                          set married? false
+                          set ma-id my-date-id   ; it does not matter so much if ma-id refers to an agent with gender equals to 1(male)
+                          set pa-id my-id     ; we just want to record the id of the parents
+                          set date-id 99999
+                          set spouse 99999
+                          set infected-time-one-for-six-month 0
+
+                          choose-vaccine
+
+          ;;;;; check if parent is infected and set infected? status (and risk)
+                          ifelse (my-disease = true or mate-disease = true);;; need to check both side of parents done
+                                  [set infected? true
+                                  set color red]
+                                  [set infected? false]
+                          if infected? = true and vaccinated? = true
+                          [set risk 50
+                           ;print(word "Vaccine did not work well on BABY " who " because of infection on tick " ticks)
+                          ]
+
+                          set number-of-child 0
+                          set not-in-good-health false
+                          set wait-for-treatment 0
+                          set infected-once? false
+
+                          create-links-with (other turtles-on neighbors)
+                          ask links [set hidden? true]
+
+                          set contacts [who] of link-neighbors
+
+                          ;print(word "BABY " who " was born by" ma-id " and " pa-id "on tick " ticks);;;;;
+                            ]
+                      ]
+        ]
+  ; marriage(agents after choosing to interact can get married)
+      if random-float 100 < marriage-rate [marry]
+  ]
+ ]
+
+end
+
+to marry
+    let my-date turtle date-id
+    let my-disease-update infected?
+    let mate-disease-update [infected?] of my-date
+
+      set married? true    ; set married status and id of spouse
+      set spouse date-id
+
+      let my-id who
+      ask my-date [
+        set married? true
+        set spouse my-id
+      ]
+      ; we assume as long as one agent in the married couple is infected, the spouse must be infected
+      if (my-disease-update = true and mate-disease-update = false)[ask my-date [set infected? true set color red]]
+      if (my-disease-update = false and mate-disease-update = true)[set infected? true set color red]
+      ;print(word "Person " who " and person" [who] of my-date " married on tick " ticks);;;;;;
+end
+
+to give-birth-within-marriage
+    let my-id who
+    let partner-id spouse
+
+    if turtle partner-id != nobody[
+
+    ask turtle partner-id [set number-of-child (number-of-child + 1)]
+    set number-of-child (number-of-child + 1)  ; update number of children the couple has
+
+    hatch 1[
+    ;print(word "BABY " who "was born by its married parents on tick " ticks)
+      set shape "circle"
+      set color grey + 2
+    set ma-id my-id               ; record parents' id
+    set pa-id partner-id
+
+    set age 0
+    set gender ifelse-value (random-float 1 < 0.45) [ 1 ] [ 2 ]
+    set active-adult? false
+    set married? false
+    set spouse 99999
+    set date-id 99999
+    set infected-time-one-for-six-month 0
+
+    choose-vaccine   ; set vaccinated? status based on the vaccine-strategy-for-newborn in the interface
+
+    ;set infected? status based on one's parents
+      ifelse ([infected?] of turtle ma-id = true or [infected?] of turtle pa-id = true)
+      ; as long as one of the parents is infected, the child is infected
+      [set infected? true  set color red][set infected? false]
+
+    if infected? = true and vaccinated? = true
+      [set risk 50
+       ;print(word "Vaccine did not work well on BABY " who " because of infection on tick " ticks)
+      ]
+
+    set number-of-child 0
+
+    set not-in-good-health false
+    set wait-for-treatment 0
+    set infected-once? false
+
+    create-links-with (other turtles-on neighbors)    ; create links with others
+    ask links [set hidden? true]
+    set contacts [who] of link-neighbors
+
+    ]
+  ]
+end
+
+to divorce     ; reset marriage status, number of children and spouse id
+  ask turtles with [married? = true]
+  [if random-float 100 < divorce-rate [
+       if turtle spouse != nobody[
+       ;print(word "Person " who " and person" spouse " divorced on tick " ticks)
+          ask turtle spouse [
+          set married? false
+          set number-of-child 0
+          set spouse 99999]
+
+          set married? false
+          set number-of-child 0
+          set spouse 99999
+       ]
+    ]
+  ]
+end
+
+to health-check-every-two-years     ; every 2 year some agents(based on regular-check-cover-rate) would be chosen to undergo a health check
+  if ticks != 0 and ticks mod 4 = 0 [
+  let population count turtles
+  let checked n-of (population * regular-check-cover-rate / 100) turtles
+  ask checked with [infected? = true and not-in-good-health = false][   ; for those who are infected but still appear to be health
+    set not-in-good-health true      ; diagnosed and will have treatment
+     ]
+  ]
+end
+
+to recover    ; not infected or in bad health status anymore
+  set infected? false
+  set not-in-good-health false
+  set infected-time-one-for-six-month 0
+  set wait-for-treatment 0
+  set infected-once? true   ; infection history
+  set color grey + 2
+end
+
+
+to choose-vaccine
+  if(vaccine-strategy-of-newborn = "anti-vaccine")[anti-vac]
+  if(vaccine-strategy-of-newborn = "society")[soc]
+  if(vaccine-strategy-of-newborn = "one-of-my-parents")[one-of-my-par]
+  if(vaccine-strategy-of-newborn = "both-of-my-parents")[both-of-my-par]
+  if(vaccine-strategy-of-newborn = "lesson-from-family-friend")[lesson-from-ff]
+  if(vaccine-strategy-of-newborn = "mandatory")[mand]
+end
+
+to anti-vac
+  set vaccinated? false    ; reject vaccine(no protection)
+  set risk 100
+  ;print(word "BABY " who "did not get vaccine because of anti-vaccine on tick " ticks)
+end
+
+to soc
+    ifelse random 100 < initial-vaccine-rate [set vaccinated? true][set vaccinated? false]
+    ; get vaccinated based on initial-vaccine-rate(follow the crowd)
+    ifelse vaccinated? = true
+  [set risk 30
+    ;print(word "BABY " who "got society vaccine on tick " ticks)
+  ]
+  [set risk 100
+    ;print(word "BABY " who "didn't get society vaccine on tick " ticks)
+  ]
+end
+
+to one-of-my-par   ; as long as one of the parents is vaccinated, the child is vaccinated
+  let mom turtle ma-id
+  let dad turtle pa-id
+  ifelse ([vaccinated?] of mom = true or [vaccinated?] of dad = true)
+  [set vaccinated? true
+  set risk 30
+  ;print(word "BABY " who "got vaccine because at least one of the parents allowed it on tick " ticks)
+  ]
+  [set vaccinated? false
+  set risk 100
+  ;print(word "BABY " who "did not vaccine because neither of parents allowed it on tick " ticks)
+  ]
+end
+
+to both-of-my-par  ; only when both parents are vaccinated, the children is vaccinated
+  let mom turtle ma-id
+  let dad turtle pa-id
+  ifelse ([vaccinated?] of mom = true and [vaccinated?] of dad = true)
+  [set vaccinated? true
+  set risk 30
+  ;print(word "BABY " who "got vaccine because both of the parents allowed it on tick " ticks)
+  ]
+  [set vaccinated? false
+  set risk 100
+  ;print(word "BABY " who "did not get vaccine because at least one of the parents refused it on tick " ticks)
+  ]
+end
+
+to lesson-from-ff
+  ; as long as one of the parents is vaccinated, the child is vaccinated
+  ; but if neither of the parents is vaccinated, they can seek advice from a family friend(contacts of parents) if there is any
+  ; if the friend is not in good health or infected once or vaccinated
+  ; the child should be vaccinated
+  let mom turtle ma-id
+  let dad turtle pa-id
+  ifelse ([vaccinated?] of mom = true or [vaccinated?] of dad = true)
+  [set vaccinated? true
+   set risk 30
+   ;print(word "BABY " who "got vaccine because of parents before asking a family friend on tick " ticks)
+  ]
+  [ let family-friends sentence [contacts] of mom [contacts] of dad
+      ifelse length family-friends != 0[
+      let this-friend turtle (one-of family-friends)
+      ifelse ([not-in-good-health] of this-friend = true or [infected-once?] of this-friend = true or [vaccinated?] of this-friend = true)
+      [set vaccinated? true set risk 30
+       ;print(word "BABY " who "got vaccine because of parents or a family friend on tick " ticks)
+      ][set vaccinated? false set risk 100
+       ;print(word "BABY " who "did not get vaccine because of parents or a family friend on tick " ticks)
+      ]
+    ][set vaccinated? false
+      set risk 100
+       ;print(word "BABY " who "failed to get vaccine because there is no family friend to ask on tick " ticks)
+    ]
+  ]
+end
+
+to mand ;mandatory
+  set vaccinated? true
+  set risk 30
+  ;print(word "BABY " who "got vaccine because it is mandatory on tick " ticks)
+end
+
+
+to-report random-skewed-age
+  let agemean 25   ; Mean value
+  let sd 7      ; Standard deviation
+
+  let value random-normal agemean sd  ; first use a normal distribution
+  let skewness value - agemean
+  let skewness_factor 3  ; Adjust the skewness level by changing the factor(it is positive so most people should be younger than the original agemean)
+
+  let skewed_value value + (skewness * skewness_factor)  ; get the skewed value
+
+  let min_value 14
+  let max_value 50     ; in the beginning, the youngest agents should be 14 years old and the eldest 50
+
+  let my_value skewed_value        ; do not let the age exceed the min and max age
+
+  if skewed_value < min_value [
+    set my_value min_value
+  ]
+
+  if skewed_value > max_value [
+    set my_value max_value
+  ]
+
+  report my_value
+end
+
+to-report infection-rate
+  let infected count turtles with [infected? = true]
+  let pop count turtles
+  report precision (infected / pop * 100) 2
+end
+
+to-report vaccinated-rate
+  let vac count turtles with [vaccinated? = true]
+  let pop count turtles
+  report precision (vac / pop * 100) 2
+end
+
+to-report protected-people
+ report count turtles with [vaccinated? = true]
+end
+
+to-report not-protected-people
+ report count turtles with [vaccinated? = false]
+end
