@@ -1,4 +1,5 @@
 #### ABM-HPV-Spread-and-Prevention-Model
+<img width="597" alt="image" src="https://github.com/Yiqiu-W/ABM-HPV-Spread-and-Prevention-Model/assets/164640614/f9e97d15-454e-4603-bd50-e3c12c2e3bc9">
 
 #### 1.     PURPOSE AND PATTERNS
 ##### This model is inspired by the research on AIDS done by Wang and colleagues(2011) using Repast Simphony1.2. In their model, they introduced sex, age, maximum age, partner, health status, condom using rate, infected time, being diagnosed or not, married status, as well as the number of people a patient could infect. 
