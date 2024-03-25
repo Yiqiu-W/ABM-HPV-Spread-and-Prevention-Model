@@ -1,5 +1,3 @@
-;; Yiqiu Wang(yiqwa229)
-
 turtles-own[
 age
 gender
